@@ -20,6 +20,10 @@ ex = quote
     macro foobar()
         :()
     end
+    struct Test_z{A<:Real,B}
+        a::A
+        b::B
+    end
 
     # Support non-Dict Associatives, #19441
     mutable struct CustomDict{K, V} <: Associative{K, V}
@@ -235,6 +239,19 @@ c, r, res = test_complete(s)
 end
 @test r == 1:3
 @test s[r] == "max"
+
+# Test completion of type parameters
+s = "Main.CompletionFoo.Test_z{"
+c,r = test_complete(s)
+@test length(c) == 1
+@test r == 1:25
+@test "Test_z{A<:Real,B}" == c[1][end-16:end]
+
+s = "Main.CompletionFoo.Test_z{Strin" # completion of symbols with type parameters
+c,r = test_complete(s)
+@test length(c) == 1
+@test r == length(s)-4:length(s)
+@test "String" == c[1]
 
 # Test completion of methods with input concrete args and args where typeinference determine their type
 s = "CompletionFoo.test(1,1, "

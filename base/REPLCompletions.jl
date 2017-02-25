@@ -184,19 +184,19 @@ function complete_path(path::AbstractString, pos; use_envpath=false)
 end
 
 # Determines whether method_complete should be tried. It should only be done if
-# the string endswiths ',' or '(' when disregarding whitespace_chars
-function should_method_complete(s::AbstractString)
-    method_complete = false
+# the string endswiths ',', '(', or '{' when disregarding whitespace_chars
+function should_complete_method_or_type(s::AbstractString)
+    should_complete = false
     for c in reverse(s)
-        if c in [',', '(']
-            method_complete = true
+        if c in [',', '(', '{']
+            should_complete = true
             break
         elseif !(c in whitespace_chars)
-            method_complete = false
+            should_complete = false
             break
         end
     end
-    method_complete
+    return should_complete
 end
 
 # Returns a range that includes the method name in front of the first non
@@ -346,6 +346,32 @@ function complete_methods(ex_org::Expr)
     return out
 end
 
+"""
+Method completion on 'curly' expressions like `T{}` for the type-parameters.
+
+On `UnionAll`s, this unwraps it first; e.g:
+```jldoctest
+julia> struct T{A<:Real,B}; a::A, b::B; end
+T
+
+julia> Base.REPLCompletions.complete_type_params(:(T{}))
+T{A<:Real,B}
+```
+"""
+function complete_type_params(ex::Expr)
+    out = String[]
+    x, found = get_value(ex.args[1], Main)
+    !found && return out
+    isa(x, Function) && return out
+
+    if isa(x, Type)
+        T = Base.unwrap_unionall(x)
+        push!(out, sprint(show, T))
+    end
+
+    return out
+end
+
 include("latex_symbols.jl")
 include("emoji_symbols.jl")
 
@@ -474,12 +500,43 @@ function completions(string, pos)
     # Make sure that only bslash_completions is working on strings
     inc_tag==:string && return String[], 0:-1, false
 
-    if inc_tag == :other && should_method_complete(partial)
-        frange, method_name_end = find_start_brace(partial)
-        ex = Base.syntax_deprecation_warnings(false) do
-            parse(partial[frange] * ")", raise=false)
+    if inc_tag == :other && should_complete_method_or_type(partial)
+        closing_brace = ' '
+        for ch in partial
+            if ch == '('
+                closing_brace = ')'
+                break
+            elseif ch == '{'
+                closing_brace = '}'
+                break
+            elseif ch == '['
+                closing_brace = ']'
+                break
+            end
         end
-        if isa(ex, Expr) && ex.head==:call
+        if closing_brace == ' '
+            warn("mismatched the closing brace for '$partial' at position $pos")
+            return String[], 0:-1, false
+        end
+        opening_brace = ' '
+        if closing_brace == ')'
+            opening_brace = '('
+        elseif closing_brace == '}'
+            opening_brace = '{'
+        elseif closing_brace == ']'
+            opening_brace = '['
+        end
+        if closing_brace == ' '
+            warn("mismatched the opening brace brace for '$partial' at position $pos")
+            return String[], 0:-1, false
+        end
+        frange, method_name_end = find_start_brace(partial; c_start=opening_brace, c_end=closing_brace)
+        ex = Base.syntax_deprecation_warnings(false) do
+            parse(partial[frange] * Base.string(closing_brace), raise=false)
+        end
+        if isa(ex, Expr) && ex.head==:curly
+            return complete_type_params(ex), start(frange):method_name_end, false
+        elseif isa(ex, Expr) && ex.head==:call
             return complete_methods(ex), start(frange):method_name_end, false
         end
     elseif inc_tag == :comment
