@@ -453,7 +453,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
     end
 
     for (func,arg_types_param) in funcs
-        for method in methods(func)
+        for method in methods(unwrap_unionall(func))
             buf = IOBuffer()
             tv = Any[]
             sig0 = method.sig
@@ -472,8 +472,15 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 return
             else
                 # TODO: use the methodshow logic here
-                use_constructor_syntax = isa(func, Type)
-                print(buf, use_constructor_syntax ? func : typeof(func).name.mt.name)
+                if isa(func, Type)
+                    if isa(func, UnionAll)
+                        print(buf, unwrap_unionall(func).name)
+                    else
+                        print(buf, func.name)
+                    end
+                else
+                    print(buf, typeof(func).name.mt.name)
+                end
             end
             print(buf, "(")
             t_i = copy(arg_types_param)
@@ -483,10 +490,10 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 # If isvarargtype then it checks whether the rest of the input arguments matches
                 # the varargtype
                 if Base.isvarargtype(sig[i])
-                    sigstr = string(unwrap_unionall(sig[i]).parameters[1], "...")
+                    sigstr = string(unwrap_unionall(sig[i]).parameters[1].name, "...")
                     j = length(t_i)
                 else
-                    sigstr = string(sig[i])
+                    sigstr = string(isa(sig[i],Union) ? sig[i] : sig[i].name)
                     j = i
                 end
                 # Checks if the type of arg 1:i of the input intersects with the current method
@@ -531,9 +538,9 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                     for (k, sigtype) in enumerate(sig[length(t_i)+1:end])
                         sigtype = isvarargtype(sigtype) ? unwrap_unionall(sigtype) : sigtype
                         if Base.isvarargtype(sigtype)
-                            sigstr = string(sigtype.parameters[1], "...")
+                            sigstr = string(sigtype.parameters[1].name, "...")
                         else
-                            sigstr = string(sigtype)
+                            sigstr = string(isa(sigtype,Union) ? sigtype : sigtype.name)
                         end
                         if !((min(length(t_i), length(sig)) == 0) && k==1)
                             print(buf, ", ")
