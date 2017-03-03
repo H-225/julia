@@ -452,8 +452,10 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
         end
     end
 
+    const CANDIDATE_LIMIT = 3
     for (func,arg_types_param) in funcs
-        for method in methods(unwrap_unionall(func))
+        for (i,method) in enumerate(methods(unwrap_unionall(func)))
+            i > CANDIDATE_LIMIT && break
             buf = IOBuffer()
             tv = Any[]
             sig0 = method.sig
@@ -464,6 +466,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 push!(tv, sig0.var)
                 sig0 = sig0.body
             end
+            sig0 = unwrap_unionall(sig0)
             s1 = sig0.parameters[1]
             sig = sig0.parameters[2:end]
             print(buf, "  ")
@@ -485,15 +488,24 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
             print(buf, "(")
             t_i = copy(arg_types_param)
             right_matches = 0
+
+            # We don't want TypeVars to display their bounds when they
+            # are stringified as the types of arguments, since it is redundant with the `where` clause.
+            function stringify(param)
+                isa(param, TypeVar)  && return param.name
+                return string(param)
+            end
+            stringify(param, extra_strings::String...) = string(stringify(param), extra_strings...)
+
             for i = 1 : min(length(t_i), length(sig))
                 i > 1 && print(buf, ", ")
                 # If isvarargtype then it checks whether the rest of the input arguments matches
                 # the varargtype
                 if Base.isvarargtype(sig[i])
-                    sigstr = string(unwrap_unionall(sig[i]).parameters[1].name, "...")
+                    sigstr = stringify(unwrap_unionall(sig[i]).parameters[1], "...")
                     j = length(t_i)
                 else
-                    sigstr = string(isa(sig[i],Union) ? sig[i] : sig[i].name)
+                    sigstr = stringify(sig[i])
                     j = i
                 end
                 # Checks if the type of arg 1:i of the input intersects with the current method
@@ -538,9 +550,9 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                     for (k, sigtype) in enumerate(sig[length(t_i)+1:end])
                         sigtype = isvarargtype(sigtype) ? unwrap_unionall(sigtype) : sigtype
                         if Base.isvarargtype(sigtype)
-                            sigstr = string(sigtype.parameters[1].name, "...")
+                            sigstr = stringify(sigtype.parameters[1], "...")
                         else
-                            sigstr = string(isa(sigtype,Union) ? sigtype : sigtype.name)
+                            sigstr = stringify(sig[i])
                         end
                         if !((min(length(t_i), length(sig)) == 0) && k==1)
                             print(buf, ", ")
@@ -554,6 +566,8 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                         end
                     end
                 end
+            end
+            if right_matches > 0 || length(ex.args) < 2
                 kwords = Symbol[]
                 if isdefined(ft.name.mt, :kwsorter)
                     kwsorter_t = typeof(ft.name.mt.kwsorter)
@@ -599,7 +613,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
             i = 0
             for line in lines
                 println(io)
-                if i >= 3
+                if i > CANDIDATE_LIMIT
                     print(io, "  ...")
                     break
                 end
