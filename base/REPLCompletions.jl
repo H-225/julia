@@ -235,7 +235,15 @@ function find_start_brace(s::AbstractString; c_start='(', c_end=')')
     end
     braces != 1 && return 0:-1, -1
     method_name_end = reverseind(r, i)
-    startind = nextind(s, rsearch(s, non_identifier_chars, method_name_end))
+    if s[method_name_end] == '}' && s[end] == '(' # this is a call that manually specifies type params
+         # we care about everything before the '(' but after any previous '('
+         # i.e: for both of the following examples, we want to select `Point{Int}`:
+         # - `Point{Int}(`
+         # - `f(Point{Int}(`
+        startind = nextind(s, rsearch(s, ['('], method_name_end))
+    else
+        startind = nextind(s, rsearch(s, non_identifier_chars, method_name_end))
+    end
     return (startind:endof(s), method_name_end)
 end
 
@@ -317,6 +325,9 @@ end
 # Method completion on function call expression that look like :(max(1))
 function complete_methods(ex_org::Expr)
     args_ex = Any[]
+    # Normalize exprs like `T{A,B}()` to `T()` so that `get_value` can find them properly.
+    # We can do this since all we actually care about is showing the methods for `T`.
+    !isa(ex_org.args[1],Symbol) && ex_org.head==:call && ex_org.args[1].head==:curly && (ex_org = ex_org.args[1])
     func, found = get_value(ex_org.args[1], Main)
     !found && return String[]
     for ex in ex_org.args[2:end]
@@ -502,7 +513,7 @@ function completions(string, pos)
 
     if inc_tag == :other && should_complete_method_or_type(partial)
         closing_brace = ' '
-        for ch in partial
+        for ch in reverse(partial)
             if ch == '('
                 closing_brace = ')'
                 break
