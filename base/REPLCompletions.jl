@@ -327,26 +327,25 @@ function complete_methods(ex_org::Expr)
     args_ex = Any[]
     # Normalize exprs like `T{A,B}()` to `T()` so that `get_value` can find them properly.
     # We can do this since all we actually care about is showing the methods for `T`.
-    !isa(ex_org.args[1],Symbol) && ex_org.head==:call && ex_org.args[1].head==:curly && (ex_org = ex_org.args[1])
-    func, found = get_value(ex_org.args[1], Main)
+    ex_notypeparams = ex_org
+    given_type_params = !isa(ex_org.args[1],Symbol) && ex_org.head==:call && ex_org.args[1].head==:curly
+    given_type_params && (ex_notypeparams = :($(ex_org.args[1].args[1])()))
+    func, found = get_value(ex_notypeparams.args[1], Main)
     !found && return String[]
-    for ex in ex_org.args[2:end]
+    for ex in ex_notypeparams.args[2:end]
         val, found = get_type(ex, Main)
         push!(args_ex, val)
     end
-    out = String[]
     t_in = Tuple{Core.Typeof(func), args_ex...} # Input types
     na = length(args_ex)+1
     ml = methods(func)
+    outmethods = Set{Method}()
     kwtype = isdefined(ml.mt, :kwsorter) ? Nullable{DataType}(typeof(ml.mt.kwsorter)) : Nullable{DataType}()
-    io = IOBuffer()
+    out = String[]
+    io  = IOBuffer()
     for method in ml
         ms = method.sig
-
-        # Do not suggest the default method from sysimg.jl.
-        if Base.is_default_method(method)
-            continue
-        end
+        Base.is_default_method(method) && continue # Do not suggest the default method from sysimg.jl.
 
         # Check if the method's type signature intersects the input types
         if typeintersect(Base.rewrap_unionall(Tuple{Base.unwrap_unionall(ms).parameters[1 : min(na, end)]...}, ms), t_in) != Union{}
