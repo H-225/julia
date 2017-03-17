@@ -372,7 +372,6 @@ function complete_type_params(ex::Expr)
     out = String[]
     x, found = get_value(ex.args[1], Main)
     !found && return out
-    isa(x, Function) && return out
 
     if isa(x, Type)
         T = Base.unwrap_unionall(x)
@@ -519,9 +518,6 @@ function completions(string, pos)
             elseif ch == '{'
                 closing_brace = '}'
                 break
-            elseif ch == '['
-                closing_brace = ']'
-                break
             end
         end
         if closing_brace == ' '
@@ -533,11 +529,9 @@ function completions(string, pos)
             opening_brace = '('
         elseif closing_brace == '}'
             opening_brace = '{'
-        elseif closing_brace == ']'
-            opening_brace = '['
         end
         if closing_brace == ' '
-            warn("mismatched the opening brace brace for '$partial' at position $pos")
+            warn("mismatched the opening brace for '$partial' at position $pos")
             return String[], 0:-1, false
         end
         frange, method_name_end = find_start_brace(partial; c_start=opening_brace, c_end=closing_brace)
