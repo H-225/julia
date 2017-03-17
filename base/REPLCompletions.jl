@@ -509,6 +509,9 @@ function completions(string, pos)
     # Make sure that only bslash_completions is working on strings
     inc_tag==:string && return String[], 0:-1, false
 
+    # don't spam the console for `x[<TAB>`
+    inc_tag==:other && last(partial) == '[' && return String[], 0:-1, false
+
     if inc_tag == :other && should_complete_method_or_type(partial)
         closing_brace = ' '
         for ch in reverse(partial)
